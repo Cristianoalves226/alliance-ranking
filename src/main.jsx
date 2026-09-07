@@ -151,6 +151,47 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
+  // Pré-processa a imagem para melhorar o OCR em telas escuras de jogos
+  const preprocessImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        // 1. Converte para escala de cinza + aumenta contraste + inverte (fundo escuro → claro)
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          // Escala de cinza
+          let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+          // Aumenta contraste
+          gray = (gray - 128) * 1.8 + 128;
+          // Inverte (texto claro em fundo escuro vira texto escuro em fundo claro)
+          gray = 255 - gray;
+          // Threshold simples para limpar
+          gray = gray > 140 ? 255 : gray < 80 ? 0 : gray;
+          data[i] = data[i + 1] = data[i + 2] = Math.max(0, Math.min(255, gray));
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Falha ao processar imagem'));
+        }, 'image/png');
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const processOCR = async () => {
     if (images.length === 0) return;
 
@@ -167,11 +208,20 @@ function App() {
       setOcrProgress({
         current: i + 1,
         total: images.length,
-        status: `Lendo imagem ${i + 1} de ${images.length}...`
+        status: `Preparando imagem ${i + 1} de ${images.length}...`
       });
 
       try {
-        const { data: { text } } = await Tesseract.recognize(img.file, 'por+eng', {
+        // Pré-processa a imagem (melhora muito a leitura de telas escuras)
+        const processedBlob = await preprocessImage(img.file);
+
+        setOcrProgress({
+          current: i + 1,
+          total: images.length,
+          status: `Lendo imagem ${i + 1} de ${images.length}...`
+        });
+
+        const { data: { text } } = await Tesseract.recognize(processedBlob, 'por+eng', {
           logger: (m) => {
             if (m.status === 'recognizing text') {
               setOcrProgress((prev) => ({
@@ -191,6 +241,7 @@ function App() {
       }
     }
 
+    // Merge final removendo duplicados entre imagens
     const map = new Map();
     for (const r of allExtracted) {
       const key = r.name.toLowerCase().replace(/\s+/g, '');
