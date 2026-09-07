@@ -290,6 +290,22 @@ function App() {
     setExtracted(finalList);
     setOcrProgress(null);
     setIsProcessing(false);
+
+    // Lança automaticamente na tabela de ranking
+    if (finalList.length > 0) {
+      setPlayers((prev) => {
+        const existing = new Set(prev.map((p) => p.name.toLowerCase().replace(/\s+/g, '')));
+        const newOnes = finalList
+          .filter((p) => p.name && p.name.trim().length > 1)
+          .filter((p) => !existing.has(p.name.toLowerCase().replace(/\s+/g, '')))
+          .map((p) => ({
+            name: p.name.trim(),
+            alliance: (p.alliance || defaultAlliance || 'Sem aliança').trim(),
+            points: Number(p.points) || 0
+          }));
+        return [...prev, ...newOnes];
+      });
+    }
   };
 
   const updateExtracted = (index, field, value) => {
@@ -306,28 +322,6 @@ function App() {
 
   const removeExtracted = (index) => {
     setExtracted((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const addExtractedToRanking = () => {
-    const toAdd = extracted
-      .filter((p) => p.name && p.name.trim().length > 1)
-      .map((p) => ({
-        name: p.name.trim(),
-        alliance: (p.alliance || defaultAlliance || 'Sem aliança').trim(),
-        points: Number(p.points) || 0
-      }));
-
-    if (toAdd.length === 0) return;
-
-    setPlayers((prev) => {
-      const existing = new Set(prev.map((p) => p.name.toLowerCase().replace(/\s+/g, '')));
-      const newOnes = toAdd.filter(
-        (p) => !existing.has(p.name.toLowerCase().replace(/\s+/g, ''))
-      );
-      return [...prev, ...newOnes];
-    });
-
-    setExtracted([]);
   };
 
   const clearRanking = () => {
@@ -370,7 +364,7 @@ function App() {
         <h2>Importar via prints (OCR)</h2>
         <p className="muted">
           Envie os prints da <strong>Classificação da Batalha da Aliança</strong>.
-          O sistema lê os nomes e pontos de todas as imagens.
+          Assim que o sistema terminar de ler, os jogadores são lançados automaticamente na tabela.
         </p>
 
         <div className="form" style={{ marginBottom: 12, gridTemplateColumns: '1fr 1fr' }}>
@@ -449,7 +443,12 @@ function App() {
           <div className="extracted-section">
             {extracted.length > 0 ? (
               <>
-                <h3>Dados extraídos ({extracted.length}) — revise antes de adicionar</h3>
+                <h3 style={{ color: '#15803d' }}>
+                  ✓ {extracted.length} jogador(es) lidos e já adicionados ao ranking
+                </h3>
+                <p className="muted" style={{ marginBottom: 12 }}>
+                  Os dados já foram lançados na tabela abaixo. Você ainda pode revisar.
+                </p>
                 <div className="table-wrap">
                   <table>
                     <thead>
@@ -483,11 +482,8 @@ function App() {
                   </table>
                 </div>
                 <div className="extracted-actions">
-                  <button type="button" className="btn-primary" onClick={addExtractedToRanking}>
-                    Adicionar {extracted.length} jogador(es) ao ranking
-                  </button>
                   <button type="button" className="btn-secondary" onClick={() => setExtracted([])}>
-                    Descartar
+                    Fechar esta lista
                   </button>
                 </div>
               </>
