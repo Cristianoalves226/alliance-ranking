@@ -10,8 +10,7 @@ permissions:
   pages: write
   id-token: write
 
-# Mantém apenas uma fila de deploy do Pages e evita cancelar uma publicação
-# que já está aguardando o ambiente do GitHub Pages.
+# Mantém uma única fila de publicação do GitHub Pages.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -39,6 +38,8 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
