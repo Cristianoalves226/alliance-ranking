@@ -15,7 +15,6 @@ function App() {
   const [alliance, setAlliance] = useState('OsRenegados Br');
   const [points, setPoints] = useState('');
 
-  // OCR states
   const [images, setImages] = useState([]);
   const [ocrProgress, setOcrProgress] = useState(null);
   const [extracted, setExtracted] = useState([]);
@@ -69,9 +68,6 @@ function App() {
     setOcrProgress(null);
   };
 
-  /**
-   * Parser otimizado para os prints da "Classificação da Batalha da Aliança"
-   */
   const parseTextToPlayers = (text) => {
     const lines = text
       .split(/\r?\n/)
@@ -79,14 +75,15 @@ function App() {
       .filter((l) => l.length > 0);
 
     const results = [];
-    const pointsRegex = /(\d{1,3}(?:\.\d{3}){1,4})\s*(?:pts\.?|pontos)?/i;
+    const pointsRegex = /(\d{1,3}(?:\.\d{3}){1,4}|\d{5,})\s*(?:pts\.?|pontos)?/i;
 
     const noiseWords = new Set([
       'ranking', 'geral', 'sua', 'aliança', 'alianca', 'posição', 'posicao',
       'minha', 'seu', 'classificação', 'classificacao', 'batalha', 'fechar',
       'normal', 'extremo', 'lenda', 'necessário', 'necessario', 'velocidade',
       'supervisão', 'supervisao', 'silêncio', 'silencio', 'recomendado',
-      'pts', 'pontos', 'melhores', 'da', 'de', 'do', 'e', 'o', 'a'
+      'pts', 'pontos', 'melhores', 'da', 'de', 'do', 'e', 'o', 'a',
+      'sua posição', 'sua posicao', 'minha aliança', 'minha alianca'
     ]);
 
     for (let i = 0; i < lines.length; i++) {
@@ -97,7 +94,7 @@ function App() {
         const pointsStr = match[1];
         const pointsVal = Number(pointsStr.replace(/\./g, ''));
 
-        if (pointsVal < 10000) continue;
+        if (pointsVal < 5000) continue;
 
         let namePart = line
           .replace(pointsRegex, ' ')
@@ -113,22 +110,37 @@ function App() {
             .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
             .replace(/\s+/g, ' ')
             .trim();
-
-          if (prev.length >= 2) {
+          if (prev.length >= 2 && !noiseWords.has(prev.toLowerCase())) {
             namePart = prev;
+          }
+        }
+
+        if (namePart.length < 2 && i + 1 < lines.length) {
+          const next = lines[i + 1]
+            .replace(pointsRegex, ' ')
+            .replace(/^\d+[ºª°.]?\s*/i, '')
+            .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (next.length >= 2 && !noiseWords.has(next.toLowerCase())) {
+            namePart = next;
           }
         }
 
         namePart = namePart
           .replace(/^(#?\d+[ºª°.]?\s*)+/i, '')
+          .replace(/\s+/g, ' ')
           .trim();
 
         const lower = namePart.toLowerCase();
         if (
           namePart.length >= 2 &&
-          namePart.length <= 30 &&
+          namePart.length <= 32 &&
           !noiseWords.has(lower) &&
-          !/^\d+$/.test(namePart)
+          !/^\d+$/.test(namePart) &&
+          !lower.includes('posição') &&
+          !lower.includes('posicao') &&
+          !lower.includes('ranking')
         ) {
           results.push({
             name: namePart,
@@ -151,44 +163,60 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
-  // Pré-processa a imagem para melhorar o OCR em telas escuras de jogos
   const preprocessImage = (file) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const maxWidth = 1200;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
 
-        // 1. Converte para escala de cinza + aumenta contraste + inverte (fundo escuro → claro)
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          // Escala de cinza
-          let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-          // Aumenta contraste
-          gray = (gray - 128) * 1.8 + 128;
-          // Inverte (texto claro em fundo escuro vira texto escuro em fundo claro)
-          gray = 255 - gray;
-          // Threshold simples para limpar
-          gray = gray > 140 ? 255 : gray < 80 ? 0 : gray;
-          data[i] = data[i + 1] = data[i + 2] = Math.max(0, Math.min(255, gray));
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            gray = (gray - 128) * 2.2 + 128;
+            gray = 255 - gray;
+            gray = gray > 130 ? 255 : gray < 70 ? 0 : gray;
+            data[i] = data[i + 1] = data[i + 2] = Math.max(0, Math.min(255, gray));
+          }
+
+          ctx.putImageData(imageData, 0, 0);
+          canvas.toBlob(
+            (blob) => {
+              URL.revokeObjectURL(objectUrl);
+              if (blob) resolve(blob);
+              else reject(new Error('Falha ao processar imagem'));
+            },
+            'image/png',
+            0.95
+          );
+        } catch (err) {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
         }
-
-        ctx.putImageData(imageData, 0, 0);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Falha ao processar imagem'));
-        }, 'image/png');
       };
-      img.onerror = reject;
-      img.src = URL.createObjectURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Falha ao carregar imagem'));
+      };
+      img.src = objectUrl;
     });
   };
 
@@ -203,45 +231,47 @@ function App() {
     const allExtracted = [];
     const allRaw = [];
 
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
-      setOcrProgress({
-        current: i + 1,
-        total: images.length,
-        status: `Preparando imagem ${i + 1} de ${images.length}...`
-      });
+    let worker = null;
+    try {
+      worker = await Tesseract.createWorker('por+eng');
 
-      try {
-        // Pré-processa a imagem (melhora muito a leitura de telas escuras)
-        const processedBlob = await preprocessImage(img.file);
-
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
         setOcrProgress({
           current: i + 1,
           total: images.length,
-          status: `Lendo imagem ${i + 1} de ${images.length}...`
+          status: `Preparando imagem ${i + 1} de ${images.length}...`
         });
 
-        const { data: { text } } = await Tesseract.recognize(processedBlob, 'por+eng', {
-          logger: (m) => {
-            if (m.status === 'recognizing text') {
-              setOcrProgress((prev) => ({
-                ...prev,
-                status: `Lendo imagem ${i + 1} de ${images.length} (${Math.round(m.progress * 100)}%)`
-              }));
-            }
-          }
-        });
+        try {
+          const processedBlob = await preprocessImage(img.file);
 
-        allRaw.push({ name: img.name, text });
-        const parsed = parseTextToPlayers(text);
-        allExtracted.push(...parsed);
-      } catch (err) {
-        console.error('Erro OCR:', err);
-        allRaw.push({ name: img.name, text: `[Erro ao processar: ${err.message}]` });
+          setOcrProgress({
+            current: i + 1,
+            total: images.length,
+            status: `Lendo imagem ${i + 1} de ${images.length}...`
+          });
+
+          const { data: { text } } = await worker.recognize(processedBlob);
+
+          allRaw.push({ name: img.name, text });
+          const parsed = parseTextToPlayers(text);
+          console.log(`Imagem ${i + 1} extraiu ${parsed.length} jogadores`);
+          allExtracted.push(...parsed);
+        } catch (err) {
+          console.error(`Erro na imagem ${i + 1}:`, err);
+          allRaw.push({ name: img.name, text: `[Erro ao processar: ${err.message}]` });
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao criar worker Tesseract:', err);
+      allRaw.push({ name: 'sistema', text: `[Erro geral: ${err.message}]` });
+    } finally {
+      if (worker) {
+        await worker.terminate();
       }
     }
 
-    // Merge final removendo duplicados entre imagens
     const map = new Map();
     for (const r of allExtracted) {
       const key = r.name.toLowerCase().replace(/\s+/g, '');
@@ -334,13 +364,13 @@ function App() {
       <section className="panel">
         <h2>Importar via prints (OCR)</h2>
         <p className="muted">
-          Envie os prints da <strong>Classificação da Batalha da Aliança</strong> (Ranking da Sua Aliança ou Ranking Geral).
-          O sistema lê os nomes e pontos automaticamente.
+          Envie os prints da <strong>Classificação da Batalha da Aliança</strong>.
+          O sistema lê os nomes e pontos de todas as imagens.
         </p>
 
         <div className="form" style={{ marginBottom: 12, gridTemplateColumns: '1fr 1fr' }}>
           <div>
-            <label style={{ fontSize: 13, color: '#64748b' }}>Aliança padrão (para os jogadores extraídos)</label>
+            <label style={{ fontSize: 13, color: '#64748b' }}>Aliança padrão</label>
             <input
               value={defaultAlliance}
               onChange={(e) => setDefaultAlliance(e.target.value)}
@@ -429,27 +459,16 @@ function App() {
                     <tr key={i}>
                       <td>{i + 1}</td>
                       <td>
-                        <input
-                          value={p.name}
-                          onChange={(e) => updateExtracted(i, 'name', e.target.value)}
-                        />
+                        <input value={p.name} onChange={(e) => updateExtracted(i, 'name', e.target.value)} />
                       </td>
                       <td>
-                        <input
-                          value={p.alliance}
-                          onChange={(e) => updateExtracted(i, 'alliance', e.target.value)}
-                        />
+                        <input value={p.alliance} onChange={(e) => updateExtracted(i, 'alliance', e.target.value)} />
                       </td>
                       <td>
-                        <input
-                          value={formatPoints(p.points)}
-                          onChange={(e) => updateExtracted(i, 'points', e.target.value)}
-                        />
+                        <input value={formatPoints(p.points)} onChange={(e) => updateExtracted(i, 'points', e.target.value)} />
                       </td>
                       <td>
-                        <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>
-                          ×
-                        </button>
+                        <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>×</button>
                       </td>
                     </tr>
                   ))}
@@ -506,7 +525,7 @@ function App() {
               {ranking.length === 0 ? (
                 <tr>
                   <td colSpan={4} style={{ textAlign: 'center', color: '#64748b' }}>
-                    Nenhum jogador cadastrado ainda. Envie os prints acima.
+                    Nenhum jogador cadastrado ainda.
                   </td>
                 </tr>
               ) : (
@@ -528,22 +547,9 @@ function App() {
         <h2>Cadastrar jogador manualmente</h2>
         <p className="muted">Use quando o OCR errar algum nome ou ponto.</p>
         <form onSubmit={addPlayer} className="form">
-          <input
-            placeholder="Nome do jogador"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <input
-            placeholder="Aliança"
-            value={alliance}
-            onChange={(e) => setAlliance(e.target.value)}
-          />
-          <input
-            placeholder="Pontos (ex: 138123031 ou 138.123.031)"
-            value={points}
-            onChange={(e) => setPoints(e.target.value)}
-          />
+          <input placeholder="Nome do jogador" value={name} onChange={(e) => setName(e.target.value)} required />
+          <input placeholder="Aliança" value={alliance} onChange={(e) => setAlliance(e.target.value)} />
+          <input placeholder="Pontos (ex: 138123031)" value={points} onChange={(e) => setPoints(e.target.value)} />
           <button type="submit">Adicionar jogador</button>
         </form>
       </section>
