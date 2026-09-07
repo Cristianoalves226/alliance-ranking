@@ -75,7 +75,6 @@ function App() {
       .filter((l) => l.length > 0);
 
     const results = [];
-    // Aceita números BR/US: 138.123.031 | 138,123,031 | 7.114.674.620 pts.
     const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,5}|\d{6,})\s*(?:pts\.?|pontos)?/i;
 
     const noiseWords = new Set([
@@ -87,6 +86,29 @@ function App() {
       'sua posição', 'sua posicao', 'minha aliança', 'minha alianca'
     ]);
 
+    const cleanName = (raw) => {
+      return raw
+        .replace(pointsRegex, ' ')
+        .replace(/^\d+[ºª°.]?\s*/i, '')
+        .replace(/^(#?\d+[ºª°.]?\s*)+/i, '')
+        .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const isValidName = (n) => {
+      if (!n || n.length < 2 || n.length > 32) return false;
+      const lower = n.toLowerCase();
+      if (noiseWords.has(lower)) return false;
+      if (/^\d+$/.test(n)) return false;
+      if (lower.includes('posição') || lower.includes('posicao')) return false;
+      if (lower.includes('ranking') || lower.includes('classifica')) return false;
+      if (lower.includes('aliança') || lower.includes('alianca')) return false;
+      if (lower.includes('fechar') || lower.includes('melhores')) return false;
+      if (!/\p{L}/u.test(n)) return false;
+      return true;
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const match = line.match(pointsRegex);
@@ -97,52 +119,26 @@ function App() {
 
         if (pointsVal < 1000) continue;
 
-        let namePart = line
-          .replace(pointsRegex, ' ')
-          .replace(/^\d+[ºª°.]?\s*/i, '')
-          .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+        let namePart = cleanName(line);
 
-        if (namePart.length < 2 && i > 0) {
-          const prev = lines[i - 1]
-            .replace(pointsRegex, ' ')
-            .replace(/^\d+[ºª°.]?\s*/i, '')
-            .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (prev.length >= 2 && !noiseWords.has(prev.toLowerCase())) {
-            namePart = prev;
+        // Se falhou (comum no 1º lugar com fundo azul), procura nas vizinhas
+        if (!isValidName(namePart)) {
+          const candidates = [];
+          for (let d = 1; d <= 3; d++) {
+            if (i - d >= 0) candidates.push(cleanName(lines[i - d]));
+          }
+          for (let d = 1; d <= 2; d++) {
+            if (i + d < lines.length) candidates.push(cleanName(lines[i + d]));
+          }
+          for (const c of candidates) {
+            if (isValidName(c)) {
+              namePart = c;
+              break;
+            }
           }
         }
 
-        if (namePart.length < 2 && i + 1 < lines.length) {
-          const next = lines[i + 1]
-            .replace(pointsRegex, ' ')
-            .replace(/^\d+[ºª°.]?\s*/i, '')
-            .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (next.length >= 2 && !noiseWords.has(next.toLowerCase())) {
-            namePart = next;
-          }
-        }
-
-        namePart = namePart
-          .replace(/^(#?\d+[ºª°.]?\s*)+/i, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        const lower = namePart.toLowerCase();
-        if (
-          namePart.length >= 2 &&
-          namePart.length <= 32 &&
-          !noiseWords.has(lower) &&
-          !/^\d+$/.test(namePart) &&
-          !lower.includes('posição') &&
-          !lower.includes('posicao') &&
-          !lower.includes('ranking')
-        ) {
+        if (isValidName(namePart)) {
           results.push({
             name: namePart,
             alliance: defaultAlliance || '',
@@ -164,7 +160,6 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
-  // Estratégia testada: escala de cinza + contraste forte (SEM inverter)
   const preprocessImage = (file) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -238,12 +233,6 @@ function App() {
         });
 
         try {
-          setOcrProgress({
-            current: i + 1,
-            total: images.length,
-            status: `Preparando imagem ${i + 1} de ${images.length}...`
-          });
-
           const processedBlob = await preprocessImage(img.file);
 
           setOcrProgress({
