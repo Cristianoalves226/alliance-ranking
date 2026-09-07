@@ -74,7 +74,6 @@ function App() {
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
 
-    const results = [];
     const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,5}|\d{6,})\s*(?:pts\.?|pontos)?/i;
 
     const noiseWords = new Set([
@@ -83,7 +82,8 @@ function App() {
       'normal', 'extremo', 'lenda', 'necessário', 'necessario', 'velocidade',
       'supervisão', 'supervisao', 'silêncio', 'silencio', 'recomendado',
       'pts', 'pontos', 'melhores', 'da', 'de', 'do', 'e', 'o', 'a',
-      'sua posição', 'sua posicao', 'minha aliança', 'minha alianca'
+      'sua posição', 'sua posicao', 'minha aliança', 'minha alianca',
+      'seu ranking', 'ranking geral', 'classificacao da batalha'
     ]);
 
     const cleanName = (raw) => {
@@ -97,7 +97,7 @@ function App() {
     };
 
     const isValidName = (n) => {
-      if (!n || n.length < 2 || n.length > 32) return false;
+      if (!n || n.length < 3 || n.length > 32) return false;
       const lower = n.toLowerCase();
       if (noiseWords.has(lower)) return false;
       if (/^\d+$/.test(n)) return false;
@@ -105,47 +105,58 @@ function App() {
       if (lower.includes('ranking') || lower.includes('classifica')) return false;
       if (lower.includes('aliança') || lower.includes('alianca')) return false;
       if (lower.includes('fechar') || lower.includes('melhores')) return false;
+      if (lower.includes('batalha') || lower.includes('pontos')) return false;
       if (!/\p{L}/u.test(n)) return false;
+      const letters = (n.match(/\p{L}/gu) || []).length;
+      if (letters < 3) return false;
       return true;
     };
 
+    const pointsList = [];
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const match = line.match(pointsRegex);
+      const match = lines[i].match(pointsRegex);
+      if (!match) continue;
+      const pointsVal = Number(match[1].replace(/[.\s,]/g, ''));
+      if (pointsVal < 5000) continue;
+      pointsList.push({ lineIndex: i, points: pointsVal, line: lines[i] });
+    }
 
-      if (match) {
-        const pointsStr = match[1];
-        const pointsVal = Number(pointsStr.replace(/[.\s,]/g, ''));
+    const nameList = [];
+    for (let i = 0; i < lines.length; i++) {
+      const n = cleanName(lines[i]);
+      if (isValidName(n)) {
+        nameList.push({ lineIndex: i, name: n });
+      }
+    }
 
-        if (pointsVal < 1000) continue;
+    const results = [];
+    const usedNames = new Set();
 
-        let namePart = cleanName(line);
+    for (const p of pointsList) {
+      let best = null;
+      let bestDist = 99;
 
-        // Se falhou (comum no 1º lugar com fundo azul), procura nas vizinhas
-        if (!isValidName(namePart)) {
-          const candidates = [];
-          for (let d = 1; d <= 3; d++) {
-            if (i - d >= 0) candidates.push(cleanName(lines[i - d]));
-          }
-          for (let d = 1; d <= 2; d++) {
-            if (i + d < lines.length) candidates.push(cleanName(lines[i + d]));
-          }
-          for (const c of candidates) {
-            if (isValidName(c)) {
-              namePart = c;
-              break;
-            }
+      for (const n of nameList) {
+        if (usedNames.has(n.lineIndex)) continue;
+        const dist = p.lineIndex - n.lineIndex;
+        if (dist >= -1 && dist <= 3 && Math.abs(dist) < bestDist) {
+          if (dist >= 0 || best === null) {
+            best = n;
+            bestDist = Math.abs(dist);
           }
         }
+      }
 
-        if (isValidName(namePart)) {
-          results.push({
-            name: namePart,
-            alliance: defaultAlliance || '',
-            points: pointsVal,
-            source: line
-          });
-        }
+      let namePart = best ? best.name : cleanName(p.line);
+
+      if (isValidName(namePart)) {
+        if (best) usedNames.add(best.lineIndex);
+        results.push({
+          name: namePart,
+          alliance: defaultAlliance || '',
+          points: p.points,
+          source: p.line
+        });
       }
     }
 
@@ -171,7 +182,7 @@ function App() {
           const ctx = canvas.getContext('2d');
           let width = img.width;
           let height = img.height;
-          const scale = width < 1200 ? 1.8 : 1.3;
+          const scale = 2;
           width = Math.round(width * scale);
           height = Math.round(height * scale);
           canvas.width = width;
@@ -184,7 +195,8 @@ function App() {
           const data = imageData.data;
           for (let i = 0; i < data.length; i += 4) {
             let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-            gray = (gray - 128) * 2.3 + 128;
+            gray = (gray - 128) * 1.8 + 128;
+            gray = 255 - gray;
             gray = Math.max(0, Math.min(255, gray));
             data[i] = data[i + 1] = data[i + 2] = gray;
           }
@@ -439,7 +451,7 @@ function App() {
                   ✓ {extracted.length} jogador(es) lidos e já adicionados ao ranking
                 </h3>
                 <p className="muted" style={{ marginBottom: 12 }}>
-                  Os dados já foram lançados na tabela abaixo. Você ainda pode revisar.
+                  Os dados já foram lançados na tabela abaixo. Você ainda pode revisar os nomes.
                 </p>
                 <div className="table-wrap">
                   <table>
@@ -483,7 +495,7 @@ function App() {
               <div style={{ padding: '16px 0' }}>
                 <h3 style={{ color: '#b91c1c' }}>Nenhum jogador foi reconhecido automaticamente</h3>
                 <p className="muted">
-                  O OCR leu o texto, mas não conseguiu identificar nomes + pontos.
+                  O OCR leu o texto, mas não conseguiu identificar nomes + pontos com segurança.
                   Veja o texto bruto abaixo e cadastre manualmente se precisar.
                 </p>
               </div>
