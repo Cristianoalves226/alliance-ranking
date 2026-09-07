@@ -4,17 +4,16 @@ import Tesseract from 'tesseract.js';
 import './styles.css';
 
 const demoPlayers = [
-  { name: 'Jogador A', alliance: 'Aliança Alpha', battle: 8500, conquest: 12000 },
-  { name: 'Jogador B', alliance: 'Aliança Beta', battle: 9200, conquest: 10000 },
-  { name: 'Jogador C', alliance: 'Aliança Alpha', battle: 7800, conquest: 11500 }
+  { name: 'xcris21', alliance: 'OsRenegados Br', points: 138123031 },
+  { name: 'AgenteArcangel14', alliance: 'OsRenegados Br', points: 120736893 },
+  { name: 'alexanDDre 02', alliance: 'OsRenegados Br', points: 111379740 }
 ];
 
 function App() {
   const [players, setPlayers] = useState(demoPlayers);
   const [name, setName] = useState('');
-  const [alliance, setAlliance] = useState('');
-  const [battle, setBattle] = useState('');
-  const [conquest, setConquest] = useState('');
+  const [alliance, setAlliance] = useState('OsRenegados Br');
+  const [points, setPoints] = useState('');
 
   // OCR states
   const [images, setImages] = useState([]);
@@ -22,9 +21,10 @@ function App() {
   const [extracted, setExtracted] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [rawTexts, setRawTexts] = useState([]);
+  const [defaultAlliance, setDefaultAlliance] = useState('OsRenegados Br');
   const fileInputRef = useRef(null);
 
-  const ranking = [...players].sort((a, b) => (b.battle + b.conquest) - (a.battle + a.conquest));
+  const ranking = [...players].sort((a, b) => (b.points || 0) - (a.points || 0));
 
   const addPlayer = (event) => {
     event.preventDefault();
@@ -33,15 +33,12 @@ function App() {
       ...players,
       {
         name: name.trim(),
-        alliance: alliance.trim() || 'Sem aliança',
-        battle: Number(battle) || 0,
-        conquest: Number(conquest) || 0
+        alliance: alliance.trim() || defaultAlliance || 'Sem aliança',
+        points: Number(String(points).replace(/\./g, '')) || 0
       }
     ]);
     setName('');
-    setAlliance('');
-    setBattle('');
-    setConquest('');
+    setPoints('');
   };
 
   const handleFiles = (e) => {
@@ -72,63 +69,86 @@ function App() {
     setOcrProgress(null);
   };
 
+  /**
+   * Parser otimizado para os prints da "Classificação da Batalha da Aliança"
+   */
   const parseTextToPlayers = (text) => {
     const lines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => l.length > 1);
+      .filter((l) => l.length > 0);
 
     const results = [];
-    const numberRegex = /(\d{1,3}(?:[.,]\d{3})*|\d+)/g;
+    const pointsRegex = /(\d{1,3}(?:\.\d{3}){1,4})\s*(?:pts\.?|pontos)?/i;
+
+    const noiseWords = new Set([
+      'ranking', 'geral', 'sua', 'aliança', 'alianca', 'posição', 'posicao',
+      'minha', 'seu', 'classificação', 'classificacao', 'batalha', 'fechar',
+      'normal', 'extremo', 'lenda', 'necessário', 'necessario', 'velocidade',
+      'supervisão', 'supervisao', 'silêncio', 'silencio', 'recomendado',
+      'pts', 'pontos', 'melhores', 'da', 'de', 'do', 'e', 'o', 'a'
+    ]);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const numbers = [...line.matchAll(numberRegex)].map((m) =>
-        Number(m[0].replace(/[.,]/g, ''))
-      );
+      const match = line.match(pointsRegex);
 
-      if (numbers.length >= 1) {
+      if (match) {
+        const pointsStr = match[1];
+        const pointsVal = Number(pointsStr.replace(/\./g, ''));
+
+        if (pointsVal < 10000) continue;
+
         let namePart = line
-          .replace(numberRegex, ' ')
-          .replace(/[^\p{L}\p{N}\s\-_.]/gu, ' ')
+          .replace(pointsRegex, ' ')
+          .replace(/^\d+[ºª°.]?\s*/i, '')
+          .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
           .replace(/\s+/g, ' ')
           .trim();
 
-        namePart = namePart.replace(/^(#?\d+[ºª°.]?\s*)+/i, '').trim();
+        if (namePart.length < 2 && i > 0) {
+          const prev = lines[i - 1]
+            .replace(pointsRegex, ' ')
+            .replace(/^\d+[ºª°.]?\s*/i, '')
+            .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        if (namePart.length >= 2 && namePart.length < 40) {
-          const battleVal = numbers[0] || 0;
-          const conquestVal = numbers[1] || 0;
-
-          let allianceVal = '';
-          if (i > 0) {
-            const prev = lines[i - 1];
-            if (prev.length <= 12 && !/\d{3,}/.test(prev) && !/ranking|pontos|total|jogador/i.test(prev)) {
-              allianceVal = prev;
-            }
+          if (prev.length >= 2) {
+            namePart = prev;
           }
+        }
 
+        namePart = namePart
+          .replace(/^(#?\d+[ºª°.]?\s*)+/i, '')
+          .trim();
+
+        const lower = namePart.toLowerCase();
+        if (
+          namePart.length >= 2 &&
+          namePart.length <= 30 &&
+          !noiseWords.has(lower) &&
+          !/^\d+$/.test(namePart)
+        ) {
           results.push({
             name: namePart,
-            alliance: allianceVal || 'Sem aliança',
-            battle: battleVal,
-            conquest: conquestVal,
+            alliance: defaultAlliance || '',
+            points: pointsVal,
             source: line
           });
         }
       }
     }
 
-    const unique = [];
-    const seen = new Set();
+    const map = new Map();
     for (const r of results) {
-      const key = r.name.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(r);
+      const key = r.name.toLowerCase().replace(/\s+/g, '');
+      if (!map.has(key) || map.get(key).points < r.points) {
+        map.set(key, r);
       }
     }
-    return unique;
+
+    return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
   const processOCR = async () => {
@@ -171,8 +191,17 @@ function App() {
       }
     }
 
+    const map = new Map();
+    for (const r of allExtracted) {
+      const key = r.name.toLowerCase().replace(/\s+/g, '');
+      if (!map.has(key) || map.get(key).points < r.points) {
+        map.set(key, r);
+      }
+    }
+    const finalList = Array.from(map.values()).sort((a, b) => b.points - a.points);
+
     setRawTexts(allRaw);
-    setExtracted(allExtracted);
+    setExtracted(finalList);
     setOcrProgress(null);
     setIsProcessing(false);
   };
@@ -180,7 +209,11 @@ function App() {
   const updateExtracted = (index, field, value) => {
     setExtracted((prev) => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
+      let val = value;
+      if (field === 'points') {
+        val = Number(String(value).replace(/\./g, '')) || 0;
+      }
+      copy[index] = { ...copy[index], [field]: val };
       return copy;
     });
   };
@@ -194,16 +227,17 @@ function App() {
       .filter((p) => p.name && p.name.trim().length > 1)
       .map((p) => ({
         name: p.name.trim(),
-        alliance: (p.alliance || 'Sem aliança').trim(),
-        battle: Number(p.battle) || 0,
-        conquest: Number(p.conquest) || 0
+        alliance: (p.alliance || defaultAlliance || 'Sem aliança').trim(),
+        points: Number(p.points) || 0
       }));
 
     if (toAdd.length === 0) return;
 
     setPlayers((prev) => {
-      const existing = new Set(prev.map((p) => p.name.toLowerCase()));
-      const newOnes = toAdd.filter((p) => !existing.has(p.name.toLowerCase()));
+      const existing = new Set(prev.map((p) => p.name.toLowerCase().replace(/\s+/g, '')));
+      const newOnes = toAdd.filter(
+        (p) => !existing.has(p.name.toLowerCase().replace(/\s+/g, ''))
+      );
       return [...prev, ...newOnes];
     });
 
@@ -216,15 +250,19 @@ function App() {
     }
   };
 
+  const formatPoints = (n) => {
+    return Number(n || 0).toLocaleString('pt-BR');
+  };
+
   return (
     <main className="app">
       <header>
         <div>
-          <span className="eyebrow">PLATAFORMA COMPETITIVA</span>
+          <span className="eyebrow">BATALHA DA ALIANÇA</span>
           <h1>Alliance Ranking</h1>
-          <p>Ranking de jogadores e alianças</p>
+          <p>Importação automática de ranking via prints</p>
         </div>
-        <span className="season">Temporada 1</span>
+        <span className="season">Temporada atual</span>
       </header>
 
       <section className="stats">
@@ -238,18 +276,27 @@ function App() {
         </div>
         <div>
           <small>Pontos totais</small>
-          <strong>
-            {ranking.reduce((s, p) => s + p.battle + p.conquest, 0).toLocaleString('pt-BR')}
-          </strong>
+          <strong>{formatPoints(ranking.reduce((s, p) => s + (p.points || 0), 0))}</strong>
         </div>
       </section>
 
       <section className="panel">
         <h2>Importar via prints (OCR)</h2>
         <p className="muted">
-          Envie uma ou mais capturas de tela do ranking. O sistema vai ler o texto e tentar
-          extrair os jogadores automaticamente. Depois você revisa e confirma.
+          Envie os prints da <strong>Classificação da Batalha da Aliança</strong> (Ranking da Sua Aliança ou Ranking Geral).
+          O sistema lê os nomes e pontos automaticamente.
         </p>
+
+        <div className="form" style={{ marginBottom: 12, gridTemplateColumns: '1fr 1fr' }}>
+          <div>
+            <label style={{ fontSize: 13, color: '#64748b' }}>Aliança padrão (para os jogadores extraídos)</label>
+            <input
+              value={defaultAlliance}
+              onChange={(e) => setDefaultAlliance(e.target.value)}
+              placeholder="Ex: OsRenegados Br"
+            />
+          </div>
+        </div>
 
         <div className="upload-area">
           <input
@@ -319,16 +366,17 @@ function App() {
               <table>
                 <thead>
                   <tr>
+                    <th>#</th>
                     <th>Nome</th>
                     <th>Aliança</th>
-                    <th>Batalha</th>
-                    <th>Conquista</th>
+                    <th>Pontos</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {extracted.map((p, i) => (
                     <tr key={i}>
+                      <td>{i + 1}</td>
                       <td>
                         <input
                           value={p.name}
@@ -343,16 +391,8 @@ function App() {
                       </td>
                       <td>
                         <input
-                          type="number"
-                          value={p.battle}
-                          onChange={(e) => updateExtracted(i, 'battle', e.target.value)}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          value={p.conquest}
-                          onChange={(e) => updateExtracted(i, 'conquest', e.target.value)}
+                          value={formatPoints(p.points)}
+                          onChange={(e) => updateExtracted(i, 'points', e.target.value)}
                         />
                       </td>
                       <td>
@@ -376,9 +416,9 @@ function App() {
           </div>
         )}
 
-        {rawTexts.length > 0 && extracted.length === 0 && (
+        {rawTexts.length > 0 && (
           <details className="raw-text">
-            <summary>Ver texto bruto lido pelo OCR</summary>
+            <summary>Ver texto bruto lido pelo OCR (debug)</summary>
             {rawTexts.map((r, i) => (
               <div key={i}>
                 <strong>{r.name}</strong>
@@ -393,7 +433,7 @@ function App() {
         <div className="panel-header">
           <div>
             <h2>Ranking de jogadores</h2>
-            <p className="muted">Classificação por pontuação total (Batalha + Conquista)</p>
+            <p className="muted">Ordenado por pontos da Batalha da Aliança</p>
           </div>
           {players.length > 0 && (
             <button type="button" className="btn-danger-sm" onClick={clearRanking}>
@@ -408,31 +448,23 @@ function App() {
                 <th>#</th>
                 <th>Jogador</th>
                 <th>Aliança</th>
-                <th>Batalha</th>
-                <th>Conquista</th>
-                <th>Total</th>
+                <th>Pontos</th>
               </tr>
             </thead>
             <tbody>
               {ranking.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', color: '#64748b' }}>
-                    Nenhum jogador cadastrado ainda
+                  <td colSpan={4} style={{ textAlign: 'center', color: '#64748b' }}>
+                    Nenhum jogador cadastrado ainda. Envie os prints acima.
                   </td>
                 </tr>
               ) : (
                 ranking.map((p, i) => (
                   <tr key={i}>
                     <td>{i + 1}º</td>
-                    <td>
-                      <b>{p.name}</b>
-                    </td>
+                    <td><b>{p.name}</b></td>
                     <td>{p.alliance}</td>
-                    <td>{p.battle.toLocaleString('pt-BR')}</td>
-                    <td>{p.conquest.toLocaleString('pt-BR')}</td>
-                    <td>
-                      <b>{(p.battle + p.conquest).toLocaleString('pt-BR')}</b>
-                    </td>
+                    <td><b>{formatPoints(p.points)}</b></td>
                   </tr>
                 ))
               )}
@@ -443,7 +475,7 @@ function App() {
 
       <section className="panel">
         <h2>Cadastrar jogador manualmente</h2>
-        <p className="muted">Use quando o OCR não capturar corretamente ou para ajustes pontuais.</p>
+        <p className="muted">Use quando o OCR errar algum nome ou ponto.</p>
         <form onSubmit={addPlayer} className="form">
           <input
             placeholder="Nome do jogador"
@@ -452,23 +484,14 @@ function App() {
             required
           />
           <input
-            placeholder="Nome da aliança"
+            placeholder="Aliança"
             value={alliance}
             onChange={(e) => setAlliance(e.target.value)}
           />
           <input
-            type="number"
-            min="0"
-            placeholder="Batalha"
-            value={battle}
-            onChange={(e) => setBattle(e.target.value)}
-          />
-          <input
-            type="number"
-            min="0"
-            placeholder="Conquista"
-            value={conquest}
-            onChange={(e) => setConquest(e.target.value)}
+            placeholder="Pontos (ex: 138123031 ou 138.123.031)"
+            value={points}
+            onChange={(e) => setPoints(e.target.value)}
           />
           <button type="submit">Adicionar jogador</button>
         </form>
