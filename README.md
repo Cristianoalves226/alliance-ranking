@@ -4,15 +4,27 @@ Sistema web de ranking de alianças e jogadores.
 
 ## Funcionalidades
 
-- Login administrativo com Supabase Auth
-- Cadastro de temporadas
-- Cadastro de alianças com imagem
-- Cadastro de jogadores e pontuações
-- Ranking público compartilhável
-- Exportação para Excel
-- Geração de imagem do ranking
-- Gráficos e histórico
+- **Importação por OCR**: envie prints (capturas de tela) do ranking e o sistema lê o texto automaticamente
+- Cadastro manual de jogadores
+- Ranking público ordenado por pontuação total
+- Estatísticas rápidas (total de jogadores, alianças e pontos)
+- Exportação para Excel (planejado)
+- Geração de imagem do ranking (planejado)
+- Login administrativo com Supabase Auth (próxima etapa)
+- Cadastro de temporadas e alianças com imagem (próxima etapa)
 - Deploy automático no GitHub Pages
+
+## Como usar a importação por OCR
+
+1. Clique em **Selecionar prints**
+2. Escolha uma ou várias imagens (prints do ranking do jogo)
+3. Clique em **Ler X prints**
+4. Aguarde o processamento (pode demorar alguns segundos por imagem)
+5. Revise os dados extraídos na tabela
+6. Corrija nomes, alianças ou pontos se necessário
+7. Clique em **Adicionar jogador(es) ao ranking**
+
+> O OCR usa Tesseract.js (roda no navegador). A qualidade depende da nitidez do print e do layout do jogo. Sempre revise antes de confirmar.
 
 ## Desenvolvimento
 
@@ -26,8 +38,8 @@ npm run dev
 Crie um arquivo `.env` com:
 
 ```env
-VITE_SUPABASE_URL= sua_url
-VITE_SUPABASE_ANON_KEY= sua_chave_publica
+VITE_SUPABASE_URL=sua_url
+VITE_SUPABASE_ANON_KEY=sua_chave_publica
 ```
 
 Nunca publique chaves secretas ou service role keys.
