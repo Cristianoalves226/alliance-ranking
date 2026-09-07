@@ -231,10 +231,7 @@ function App() {
     const allExtracted = [];
     const allRaw = [];
 
-    let worker = null;
     try {
-      worker = await Tesseract.createWorker('por+eng');
-
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
         setOcrProgress({
@@ -252,11 +249,21 @@ function App() {
             status: `Lendo imagem ${i + 1} de ${images.length}...`
           });
 
-          const { data: { text } } = await worker.recognize(processedBlob);
+          const result = await Tesseract.recognize(processedBlob, 'eng', {
+            logger: (m) => {
+              if (m.status === 'recognizing text') {
+                setOcrProgress((prev) => ({
+                  ...prev,
+                  status: `Lendo imagem ${i + 1} de ${images.length} (${Math.round((m.progress || 0) * 100)}%)`
+                }));
+              }
+            }
+          });
 
+          const text = result?.data?.text || '';
           allRaw.push({ name: img.name, text });
           const parsed = parseTextToPlayers(text);
-          console.log(`Imagem ${i + 1} extraiu ${parsed.length} jogadores`);
+          console.log(`Imagem ${i + 1} extraiu ${parsed.length} jogadores`, parsed.map(p => p.name));
           allExtracted.push(...parsed);
         } catch (err) {
           console.error(`Erro na imagem ${i + 1}:`, err);
@@ -264,12 +271,8 @@ function App() {
         }
       }
     } catch (err) {
-      console.error('Erro ao criar worker Tesseract:', err);
+      console.error('Erro geral no OCR:', err);
       allRaw.push({ name: 'sistema', text: `[Erro geral: ${err.message}]` });
-    } finally {
-      if (worker) {
-        await worker.terminate();
-      }
     }
 
     const map = new Map();
@@ -281,7 +284,9 @@ function App() {
     }
     const finalList = Array.from(map.values()).sort((a, b) => b.points - a.points);
 
-    setRawTexts(allRaw);
+    console.log('Total final extraído:', finalList.length, finalList);
+
+    setRawTexts(allRaw.length > 0 ? allRaw : [{ name: 'resultado', text: 'Nenhum texto foi lido.' }]);
     setExtracted(finalList);
     setOcrProgress(null);
     setIsProcessing(false);
@@ -461,27 +466,16 @@ function App() {
                         <tr key={i}>
                           <td>{i + 1}</td>
                           <td>
-                            <input
-                              value={p.name}
-                              onChange={(e) => updateExtracted(i, 'name', e.target.value)}
-                            />
+                            <input value={p.name} onChange={(e) => updateExtracted(i, 'name', e.target.value)} />
                           </td>
                           <td>
-                            <input
-                              value={p.alliance}
-                              onChange={(e) => updateExtracted(i, 'alliance', e.target.value)}
-                            />
+                            <input value={p.alliance} onChange={(e) => updateExtracted(i, 'alliance', e.target.value)} />
                           </td>
                           <td>
-                            <input
-                              value={formatPoints(p.points)}
-                              onChange={(e) => updateExtracted(i, 'points', e.target.value)}
-                            />
+                            <input value={formatPoints(p.points)} onChange={(e) => updateExtracted(i, 'points', e.target.value)} />
                           </td>
                           <td>
-                            <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>
-                              ×
-                            </button>
+                            <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>×</button>
                           </td>
                         </tr>
                       ))}
@@ -501,8 +495,8 @@ function App() {
               <div style={{ padding: '16px 0' }}>
                 <h3 style={{ color: '#b91c1c' }}>Nenhum jogador foi reconhecido automaticamente</h3>
                 <p className="muted">
-                  O OCR leu o texto, mas não conseguiu identificar nomes + pontos com segurança.
-                  Abra o texto bruto abaixo e cadastre manualmente, ou tente prints mais nítidos / com zoom.
+                  O OCR leu o texto, mas não conseguiu identificar nomes + pontos.
+                  Veja o texto bruto abaixo e cadastre manualmente se precisar.
                 </p>
               </div>
             )}
