@@ -10,9 +10,14 @@ permissions:
   pages: write
   id-token: write
 
+# Mantém apenas uma fila de deploy do Pages e evita cancelar uma publicação
+# que já está aguardando o ambiente do GitHub Pages.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24
 
 jobs:
   build:
@@ -24,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: npm install
