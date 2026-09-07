@@ -94,7 +94,7 @@ function App() {
         const pointsStr = match[1];
         const pointsVal = Number(pointsStr.replace(/\./g, ''));
 
-        if (pointsVal < 5000) continue;
+        if (pointsVal < 1000) continue;
 
         let namePart = line
           .replace(pointsRegex, ' ')
@@ -440,62 +440,87 @@ function App() {
           </div>
         )}
 
-        {extracted.length > 0 && (
+        {!isProcessing && rawTexts.length > 0 && (
           <div className="extracted-section">
-            <h3>Dados extraídos ({extracted.length}) — revise antes de adicionar</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Nome</th>
-                    <th>Aliança</th>
-                    <th>Pontos</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {extracted.map((p, i) => (
-                    <tr key={i}>
-                      <td>{i + 1}</td>
-                      <td>
-                        <input value={p.name} onChange={(e) => updateExtracted(i, 'name', e.target.value)} />
-                      </td>
-                      <td>
-                        <input value={p.alliance} onChange={(e) => updateExtracted(i, 'alliance', e.target.value)} />
-                      </td>
-                      <td>
-                        <input value={formatPoints(p.points)} onChange={(e) => updateExtracted(i, 'points', e.target.value)} />
-                      </td>
-                      <td>
-                        <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="extracted-actions">
-              <button type="button" className="btn-primary" onClick={addExtractedToRanking}>
-                Adicionar {extracted.length} jogador(es) ao ranking
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setExtracted([])}>
-                Descartar
-              </button>
-            </div>
-          </div>
-        )}
-
-        {rawTexts.length > 0 && (
-          <details className="raw-text">
-            <summary>Ver texto bruto lido pelo OCR (debug)</summary>
-            {rawTexts.map((r, i) => (
-              <div key={i}>
-                <strong>{r.name}</strong>
-                <pre>{r.text}</pre>
+            {extracted.length > 0 ? (
+              <>
+                <h3>Dados extraídos ({extracted.length}) — revise antes de adicionar</h3>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Nome</th>
+                        <th>Aliança</th>
+                        <th>Pontos</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {extracted.map((p, i) => (
+                        <tr key={i}>
+                          <td>{i + 1}</td>
+                          <td>
+                            <input
+                              value={p.name}
+                              onChange={(e) => updateExtracted(i, 'name', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={p.alliance}
+                              onChange={(e) => updateExtracted(i, 'alliance', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={formatPoints(p.points)}
+                              onChange={(e) => updateExtracted(i, 'points', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="extracted-actions">
+                  <button type="button" className="btn-primary" onClick={addExtractedToRanking}>
+                    Adicionar {extracted.length} jogador(es) ao ranking
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => setExtracted([])}>
+                    Descartar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: '16px 0' }}>
+                <h3 style={{ color: '#b91c1c' }}>Nenhum jogador foi reconhecido automaticamente</h3>
+                <p className="muted">
+                  O OCR leu o texto, mas não conseguiu identificar nomes + pontos com segurança.
+                  Abra o texto bruto abaixo e cadastre manualmente, ou tente prints mais nítidos / com zoom.
+                </p>
               </div>
-            ))}
-          </details>
+            )}
+
+            <details className="raw-text" open={extracted.length === 0}>
+              <summary>
+                {extracted.length === 0
+                  ? 'Texto bruto lido pelo OCR (use para cadastrar manualmente)'
+                  : 'Ver texto bruto lido pelo OCR (debug)'}
+              </summary>
+              {rawTexts.map((r, i) => (
+                <div key={i} style={{ marginBottom: 16 }}>
+                  <strong>{r.name}</strong>
+                  <pre>{r.text || '(vazio)'}</pre>
+                </div>
+              ))}
+            </details>
+          </div>
         )}
       </section>
 
