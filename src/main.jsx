@@ -25,9 +25,16 @@ function App() {
   const [visionApiKey, setVisionApiKey] = useState(() => localStorage.getItem('visionApiKey') || '');
   const fileInputRef = useRef(null);
 
+  const sanitizeApiKey = (key) =>
+    String(key || '')
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+      .replace(/[^\x20-\x7E]/g, '')
+      .trim();
+
   const saveKey = (storageKey, setter) => (value) => {
-    setter(value);
-    if (value) localStorage.setItem(storageKey, value);
+    const clean = sanitizeApiKey(value);
+    setter(clean);
+    if (clean) localStorage.setItem(storageKey, clean);
     else localStorage.removeItem(storageKey);
   };
 
@@ -39,19 +46,20 @@ function App() {
       reader.readAsDataURL(file);
     });
 
-  const EXTRACT_PROMPT = `Você está lendo um print do ranking do jogo (Batalha da Aliança).
-Extraia TODOS os jogadores/alianças visíveis com nome e pontos.
-Retorne APENAS um JSON válido (sem markdown), neste formato:
+  const EXTRACT_PROMPT = `Voce esta lendo um print do ranking do jogo (Batalha da Alianca).
+Extraia TODOS os jogadores/aliancas visiveis com nome e pontos.
+Retorne APENAS um JSON valido (sem markdown), neste formato:
 {"players":[{"name":"nome","points":123456,"alliance":""}]}
 Regras:
-- points: só números inteiros (sem pontos/vírgulas)
-- name: nome do jogador ou da aliança como aparece na tela
-- ignore títulos como "RANKING", "SUA POSIÇÃO", "FECHAR"
-- se não tiver aliança, use string vazia`;
+- points: so numeros inteiros (sem pontos/virgulas)
+- name: nome do jogador ou da alianca como aparece na tela
+- ignore titulos como RANKING, SUA POSICAO, FECHAR
+- se nao tiver alianca, use string vazia`;
 
   const recognizeWithGemini = async (file, apiKey) => {
     const base64 = await fileToBase64(file);
     const mime = file.type || 'image/jpeg';
+    const key = sanitizeApiKey(apiKey);
     const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'];
     let lastErr = '';
     for (const model of models) {
@@ -61,7 +69,7 @@ Regras:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey
+            'x-goog-api-key': key
           },
           body: JSON.stringify({
             contents: [{
@@ -88,11 +96,12 @@ Regras:
   const recognizeWithGPT4o = async (file, apiKey) => {
     const base64 = await fileToBase64(file);
     const mime = file.type || 'image/jpeg';
+    const key = sanitizeApiKey(apiKey);
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        Authorization: 'Bearer ' + key
       },
       body: JSON.stringify({
         model: 'gpt-4o',
@@ -113,8 +122,9 @@ Regras:
 
   const recognizeWithVision = async (file, apiKey) => {
     const base64 = await fileToBase64(file);
+    const key = sanitizeApiKey(apiKey);
     const res = await fetch(
-      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`,
+      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(key)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +150,7 @@ Regras:
     if (!name.trim()) return;
     setPlayers([...players, {
       name: name.trim(),
-      alliance: alliance.trim() || defaultAlliance || 'Sem aliança',
+      alliance: alliance.trim() || defaultAlliance || 'Sem alianca',
       points: Number(String(points).replace(/\./g, '')) || 0
     }]);
     setName('');
@@ -176,22 +186,19 @@ Regras:
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
     const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,5}|\d{6,})\s*(?:pts\.?|pontos)?/i;
     const noiseWords = new Set([
-      'ranking', 'geral', 'sua', 'aliança', 'alianca', 'posição', 'posicao',
-      'minha', 'seu', 'classificação', 'classificacao', 'batalha', 'fechar',
-      'normal', 'extremo', 'lenda', 'pts', 'pontos', 'melhores', 'da', 'de', 'do', 'e', 'o', 'a',
-      'sua posição', 'sua posicao', 'minha aliança', 'minha alianca',
-      'seu ranking', 'ranking geral', 'classificacao da batalha'
+      'ranking', 'geral', 'sua', 'alianca', 'aliança', 'posicao', 'posição',
+      'minha', 'seu', 'classificacao', 'batalha', 'fechar', 'pts', 'pontos',
+      'melhores', 'da', 'de', 'do', 'e', 'o', 'a'
     ]);
     const cleanName = (raw) =>
-      raw.replace(pointsRegex, ' ').replace(/^\d+[ºª°.]?\s*/i, '')
-        .replace(/^(#?\d+[ºª°.]?\s*)+/i, '')
-        .replace(/[^\p{L}\p{N}\s\-_.@Øø]/gu, ' ').replace(/\s+/g, ' ').trim();
+      raw.replace(pointsRegex, ' ').replace(/^\d+[oª°.]?\s*/i, '')
+        .replace(/[^\w\s\-_.@]/gi, ' ').replace(/\s+/g, ' ').trim();
     const isValidName = (n) => {
       if (!n || n.length < 3 || n.length > 32) return false;
       const lower = n.toLowerCase();
       if (noiseWords.has(lower) || /^\d+$/.test(n)) return false;
-      if (['posição','posicao','ranking','classifica','aliança','alianca','fechar','melhores','batalha','pontos'].some((x) => lower.includes(x))) return false;
-      if (!/\p{L}/u.test(n) || (n.match(/\p{L}/gu) || []).length < 3) return false;
+      if (['posicao', 'ranking', 'classifica', 'alianca', 'fechar', 'melhores', 'batalha', 'pontos'].some((x) => lower.includes(x))) return false;
+      if (!/[A-Za-z]/.test(n)) return false;
       return true;
     };
     const pointsList = [];
@@ -221,7 +228,7 @@ Regras:
       let namePart = best ? best.name : cleanName(p.line);
       if (isValidName(namePart)) { if (best) usedNames.add(best.lineIndex); }
       else namePart = '???';
-      results.push({ name: namePart, alliance: defaultAlliance || '', points: p.points, source: p.line });
+      results.push({ name: namePart, alliance: defaultAlliance || '', points: p.points });
     }
     const map = new Map();
     for (const r of results) {
@@ -261,26 +268,23 @@ Regras:
         const width = Math.round(img.width * 2);
         const height = Math.round(img.height * 2);
         canvas.width = width; canvas.height = height;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
         const imageData = ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
         for (let i = 0; i < data.length; i += 4) {
           let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
           gray = (gray - 128) * 1.8 + 128;
-          gray = 255 - gray;
-          gray = Math.max(0, Math.min(255, gray));
+          gray = 255 - Math.max(0, Math.min(255, gray));
           data[i] = data[i + 1] = data[i + 2] = gray;
         }
         ctx.putImageData(imageData, 0, 0);
         canvas.toBlob((blob) => {
           URL.revokeObjectURL(objectUrl);
-          if (blob) resolve(blob); else reject(new Error('Falha ao processar imagem'));
+          if (blob) resolve(blob); else reject(new Error('Falha imagem'));
         }, 'image/png', 0.95);
       } catch (err) { URL.revokeObjectURL(objectUrl); reject(err); }
     };
-    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Falha ao carregar imagem')); };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Falha load')); };
     img.src = objectUrl;
   });
 
@@ -292,34 +296,30 @@ Regras:
     setOcrProgress({ current: 0, total: images.length, status: 'Iniciando...' });
     const allExtracted = [];
     const allRaw = [];
+    const gKey = sanitizeApiKey(geminiKey);
+    const oKey = sanitizeApiKey(openaiKey);
+    const vKey = sanitizeApiKey(visionApiKey);
     try {
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
         try {
           let text = '';
           let useStructured = false;
-          if (geminiKey.trim()) {
-            setOcrProgress({ current: i + 1, total: images.length, status: `Gemini — imagem ${i + 1} de ${images.length}...` });
-            text = await recognizeWithGemini(img.file, geminiKey.trim());
+          if (gKey) {
+            setOcrProgress({ current: i + 1, total: images.length, status: `Gemini — imagem ${i + 1}...` });
+            text = await recognizeWithGemini(img.file, gKey);
             useStructured = true;
-          } else if (openaiKey.trim()) {
-            setOcrProgress({ current: i + 1, total: images.length, status: `GPT-4o — imagem ${i + 1} de ${images.length}...` });
-            text = await recognizeWithGPT4o(img.file, openaiKey.trim());
+          } else if (oKey) {
+            setOcrProgress({ current: i + 1, total: images.length, status: `GPT-4o — imagem ${i + 1}...` });
+            text = await recognizeWithGPT4o(img.file, oKey);
             useStructured = true;
-          } else if (visionApiKey.trim()) {
-            setOcrProgress({ current: i + 1, total: images.length, status: `Google Vision — imagem ${i + 1} de ${images.length}...` });
-            text = await recognizeWithVision(img.file, visionApiKey.trim());
+          } else if (vKey) {
+            setOcrProgress({ current: i + 1, total: images.length, status: `Vision — imagem ${i + 1}...` });
+            text = await recognizeWithVision(img.file, vKey);
           } else {
-            setOcrProgress({ current: i + 1, total: images.length, status: `Preparando imagem ${i + 1}...` });
-            const processedBlob = await preprocessImage(img.file);
             setOcrProgress({ current: i + 1, total: images.length, status: `Tesseract — imagem ${i + 1}...` });
-            const result = await Tesseract.recognize(processedBlob, 'eng', {
-              logger: (m) => {
-                if (m.status === 'recognizing text') {
-                  setOcrProgress((prev) => ({ ...prev, status: `Tesseract — imagem ${i + 1} (${Math.round((m.progress || 0) * 100)}%)` }));
-                }
-              }
-            });
+            const processedBlob = await preprocessImage(img.file);
+            const result = await Tesseract.recognize(processedBlob, 'eng');
             text = result?.data?.text || '';
           }
           const parsed = useStructured ? parseModelResponse(text) : parseTextToPlayers(text);
@@ -339,7 +339,7 @@ Regras:
       if (!map.has(key) || map.get(key).points < r.points) map.set(key, r);
     }
     const finalList = Array.from(map.values()).sort((a, b) => b.points - a.points);
-    setRawTexts(allRaw.length ? allRaw : [{ name: 'resultado', text: 'Nenhum texto lido.' }]);
+    setRawTexts(allRaw.length ? allRaw : [{ name: 'resultado', text: 'Nenhum texto.' }]);
     setExtracted(finalList);
     setOcrProgress(null);
     setIsProcessing(false);
@@ -349,8 +349,8 @@ Regras:
         let unknown = 0;
         return [...prev, ...finalList.filter((p) => p.points > 0).map((p) => {
           let n = (p.name || '').trim();
-          if (!n || n === '???') { unknown += 1; n = `Jogador ${unknown}`; }
-          return { name: n, alliance: (p.alliance || defaultAlliance || 'Sem aliança').trim(), points: Number(p.points) || 0 };
+          if (!n || n === '???') { unknown += 1; n = 'Jogador ' + unknown; }
+          return { name: n, alliance: (p.alliance || defaultAlliance || 'Sem alianca').trim(), points: Number(p.points) || 0 };
         }).filter((p) => !existing.has(p.name.toLowerCase().replace(/\s+/g, '')))];
       });
     }
@@ -366,53 +366,47 @@ Regras:
     });
   };
   const removeExtracted = (index) => setExtracted((prev) => prev.filter((_, i) => i !== index));
-  const clearRanking = () => { if (confirm('Limpar todo o ranking?')) setPlayers([]); };
+  const clearRanking = () => { if (confirm('Limpar ranking?')) setPlayers([]); };
   const formatPoints = (n) => Number(n || 0).toLocaleString('pt-BR');
 
   return (
     <main className="app">
       <header>
         <div>
-          <span className="eyebrow">BATALHA DA ALIANÇA</span>
+          <span className="eyebrow">BATALHA DA ALIANCA</span>
           <h1>Alliance Ranking</h1>
-          <p>Importação automática de ranking via prints</p>
+          <p>Importacao automatica via prints</p>
         </div>
-        <span className="season">Temporada atual</span>
       </header>
 
       <section className="stats">
         <div><small>Jogadores</small><strong>{players.length}</strong></div>
-        <div><small>Alianças</small><strong>{new Set(players.map((p) => p.alliance)).size}</strong></div>
-        <div><small>Pontos totais</small><strong>{formatPoints(ranking.reduce((s, p) => s + (p.points || 0), 0))}</strong></div>
+        <div><small>Aliancas</small><strong>{new Set(players.map((p) => p.alliance)).size}</strong></div>
+        <div><small>Pontos</small><strong>{formatPoints(ranking.reduce((s, p) => s + (p.points || 0), 0))}</strong></div>
       </section>
 
       <section className="panel">
-        <h2>Importar via prints (OCR)</h2>
-        <p className="muted">
-          Prioridade: <strong>Gemini</strong> → GPT-4o → Vision → Tesseract.
-          Chaves AQ. do AI Studio são suportadas.
-        </p>
+        <h2>Importar via prints</h2>
+        <p className="muted">Gemini (recomendado) → GPT-4o → Vision → Tesseract</p>
         <div className="form" style={{ marginBottom: 12, gridTemplateColumns: '1fr 1fr' }}>
           <div>
-            <label style={{ fontSize: 13, color: '#64748b' }}>Aliança padrão</label>
-            <input value={defaultAlliance} onChange={(e) => setDefaultAlliance(e.target.value)} placeholder="Ex: OsRenegados Br" />
+            <label style={{ fontSize: 13, color: '#64748b' }}>Alianca padrao</label>
+            <input value={defaultAlliance} onChange={(e) => setDefaultAlliance(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 13, color: '#64748b' }}>Gemini API Key {geminiKey ? '✓' : '(recomendado)'}</label>
-            <input type="password" value={geminiKey} onChange={(e) => saveKey('geminiKey', setGeminiKey)(e.target.value.trim())} placeholder="AQ.... ou AIza..." autoComplete="off" />
+            <label style={{ fontSize: 13, color: '#64748b' }}>Gemini API Key {geminiKey ? 'OK' : ''}</label>
+            <input type="password" value={geminiKey} onChange={(e) => saveKey('geminiKey', setGeminiKey)(e.target.value)} placeholder="AQ... ou AIza..." autoComplete="off" />
           </div>
           <div>
-            <label style={{ fontSize: 13, color: '#64748b' }}>OpenAI API Key {openaiKey ? '✓' : ''}</label>
-            <input type="password" value={openaiKey} onChange={(e) => saveKey('openaiKey', setOpenaiKey)(e.target.value.trim())} placeholder="sk-..." autoComplete="off" />
+            <label style={{ fontSize: 13, color: '#64748b' }}>OpenAI Key</label>
+            <input type="password" value={openaiKey} onChange={(e) => saveKey('openaiKey', setOpenaiKey)(e.target.value)} placeholder="sk-..." autoComplete="off" />
           </div>
           <div>
-            <label style={{ fontSize: 13, color: '#64748b' }}>Google Vision Key {visionApiKey ? '✓' : ''}</label>
-            <input type="password" value={visionApiKey} onChange={(e) => saveKey('visionApiKey', setVisionApiKey)(e.target.value.trim())} placeholder="Cloud Vision" autoComplete="off" />
+            <label style={{ fontSize: 13, color: '#64748b' }}>Vision Key</label>
+            <input type="password" value={visionApiKey} onChange={(e) => saveKey('visionApiKey', setVisionApiKey)(e.target.value)} autoComplete="off" />
           </div>
         </div>
-        <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-          Gemini free: https://aistudio.google.com/apikey — chave fica só no navegador
-        </p>
+        <p className="muted" style={{ fontSize: 13 }}>Chave Gemini: https://aistudio.google.com/apikey</p>
 
         <div className="upload-area">
           <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFiles} style={{ display: 'none' }} />
@@ -420,7 +414,7 @@ Regras:
           {images.length > 0 && (
             <>
               <button type="button" className="btn-primary" onClick={processOCR} disabled={isProcessing}>
-                {isProcessing ? 'Processando...' : `Ler ${images.length} print${images.length > 1 ? 's' : ''}`}
+                {isProcessing ? 'Processando...' : `Ler ${images.length} print(s)`}
               </button>
               <button type="button" className="btn-danger" onClick={clearImages} disabled={isProcessing}>Limpar</button>
             </>
@@ -432,8 +426,7 @@ Regras:
             {images.map((img, i) => (
               <div key={i} className="image-preview">
                 <img src={img.url} alt={img.name} />
-                <button type="button" className="remove-img" onClick={() => removeImage(i)}>×</button>
-                <span className="img-name">{img.name}</span>
+                <button type="button" className="remove-img" onClick={() => removeImage(i)}>x</button>
               </div>
             ))}
           </div>
@@ -450,10 +443,10 @@ Regras:
           <div className="extracted-section">
             {extracted.length > 0 ? (
               <>
-                <h3 style={{ color: '#15803d' }}>✓ {extracted.length} registro(s)</h3>
+                <h3 style={{ color: '#15803d' }}>{extracted.length} registro(s)</h3>
                 <div className="table-wrap">
                   <table>
-                    <thead><tr><th>#</th><th>Nome</th><th>Aliança</th><th>Pontos</th><th></th></tr></thead>
+                    <thead><tr><th>#</th><th>Nome</th><th>Alianca</th><th>Pontos</th><th></th></tr></thead>
                     <tbody>
                       {extracted.map((p, i) => (
                         <tr key={i}>
@@ -461,26 +454,20 @@ Regras:
                           <td><input value={p.name} onChange={(e) => updateExtracted(i, 'name', e.target.value)} /></td>
                           <td><input value={p.alliance} onChange={(e) => updateExtracted(i, 'alliance', e.target.value)} /></td>
                           <td><input value={formatPoints(p.points)} onChange={(e) => updateExtracted(i, 'points', e.target.value)} /></td>
-                          <td><button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>×</button></td>
+                          <td><button type="button" className="btn-danger-sm" onClick={() => removeExtracted(i)}>x</button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <button type="button" className="btn-secondary" onClick={() => setExtracted([])}>Fechar</button>
               </>
             ) : (
-              <div style={{ padding: '16px 0' }}>
-                <h3 style={{ color: '#b91c1c' }}>Nenhum dado reconhecido</h3>
-              </div>
+              <h3 style={{ color: '#b91c1c' }}>Nenhum dado reconhecido</h3>
             )}
             <details className="raw-text" open={extracted.length === 0}>
-              <summary>Texto/JSON bruto</summary>
+              <summary>Texto bruto</summary>
               {rawTexts.map((r, i) => (
-                <div key={i} style={{ marginBottom: 16 }}>
-                  <strong>{r.name}</strong>
-                  <pre>{r.text || '(vazio)'}</pre>
-                </div>
+                <div key={i}><strong>{r.name}</strong><pre>{r.text}</pre></div>
               ))}
             </details>
           </div>
@@ -489,21 +476,16 @@ Regras:
 
       <section className="panel">
         <div className="panel-header">
-          <div>
-            <h2>Ranking</h2>
-            <p className="muted">Ordenado por pontos</p>
-          </div>
+          <h2>Ranking</h2>
           {players.length > 0 && <button type="button" className="btn-danger-sm" onClick={clearRanking}>Limpar</button>}
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Jogador</th><th>Aliança</th><th>Pontos</th></tr></thead>
+            <thead><tr><th>#</th><th>Jogador</th><th>Alianca</th><th>Pontos</th></tr></thead>
             <tbody>
-              {ranking.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', color: '#64748b' }}>Vazio</td></tr>
-              ) : ranking.map((p, i) => (
+              {ranking.map((p, i) => (
                 <tr key={i}>
-                  <td>{i + 1}º</td>
+                  <td>{i + 1}</td>
                   <td><b>{p.name}</b></td>
                   <td>{p.alliance}</td>
                   <td><b>{formatPoints(p.points)}</b></td>
@@ -518,7 +500,7 @@ Regras:
         <h2>Cadastro manual</h2>
         <form onSubmit={addPlayer} className="form">
           <input placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} required />
-          <input placeholder="Aliança" value={alliance} onChange={(e) => setAlliance(e.target.value)} />
+          <input placeholder="Alianca" value={alliance} onChange={(e) => setAlliance(e.target.value)} />
           <input placeholder="Pontos" value={points} onChange={(e) => setPoints(e.target.value)} />
           <button type="submit">Adicionar</button>
         </form>
