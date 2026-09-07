@@ -75,7 +75,8 @@ function App() {
       .filter((l) => l.length > 0);
 
     const results = [];
-    const pointsRegex = /(\d{1,3}(?:\.\d{3}){1,4}|\d{5,})\s*(?:pts\.?|pontos)?/i;
+    // Aceita números com ponto, espaço ou vírgula como separador de milhar
+    const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,4}|\d{5,})\s*(?:pts\.?|pontos)?/i;
 
     const noiseWords = new Set([
       'ranking', 'geral', 'sua', 'aliança', 'alianca', 'posição', 'posicao',
@@ -92,7 +93,7 @@ function App() {
 
       if (match) {
         const pointsStr = match[1];
-        const pointsVal = Number(pointsStr.replace(/\./g, ''));
+        const pointsVal = Number(pointsStr.replace(/[.\s,]/g, ''));
 
         if (pointsVal < 1000) continue;
 
@@ -163,6 +164,7 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
+  // Pré-processamento leve: só redimensiona + leve contraste (sem inverter)
   const preprocessImage = (file) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -172,7 +174,7 @@ function App() {
         try {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          const maxWidth = 1200;
+          const maxWidth = 1400;
           let width = img.width;
           let height = img.height;
           if (width > maxWidth) {
@@ -185,19 +187,15 @@ function App() {
 
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
-
           for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-            gray = (gray - 128) * 2.2 + 128;
-            gray = 255 - gray;
-            gray = gray > 130 ? 255 : gray < 70 ? 0 : gray;
-            data[i] = data[i + 1] = data[i + 2] = Math.max(0, Math.min(255, gray));
+            for (let c = 0; c < 3; c++) {
+              let v = data[i + c];
+              v = (v - 128) * 1.35 + 128;
+              data[i + c] = Math.max(0, Math.min(255, v));
+            }
           }
-
           ctx.putImageData(imageData, 0, 0);
+
           canvas.toBlob(
             (blob) => {
               URL.revokeObjectURL(objectUrl);
@@ -241,15 +239,14 @@ function App() {
         });
 
         try {
-          const processedBlob = await preprocessImage(img.file);
-
           setOcrProgress({
             current: i + 1,
             total: images.length,
             status: `Lendo imagem ${i + 1} de ${images.length}...`
           });
 
-          const result = await Tesseract.recognize(processedBlob, 'eng', {
+          // Tenta primeiro na imagem original
+          let result = await Tesseract.recognize(img.file, 'eng', {
             logger: (m) => {
               if (m.status === 'recognizing text') {
                 setOcrProgress((prev) => ({
@@ -260,9 +257,29 @@ function App() {
             }
           });
 
-          const text = result?.data?.text || '';
+          let text = result?.data?.text || '';
+          let parsed = parseTextToPlayers(text);
+
+          // Se extraiu pouco, tenta com pré-processamento leve
+          if (parsed.length < 2) {
+            setOcrProgress({
+              current: i + 1,
+              total: images.length,
+              status: `Tentando modo alternativo na imagem ${i + 1}...`
+            });
+            try {
+              const processedBlob = await preprocessImage(img.file);
+              result = await Tesseract.recognize(processedBlob, 'eng');
+              const text2 = result?.data?.text || '';
+              const parsed2 = parseTextToPlayers(text2);
+              if (parsed2.length > parsed.length) {
+                text = text2;
+                parsed = parsed2;
+              }
+            } catch (_) {}
+          }
+
           allRaw.push({ name: img.name, text });
-          const parsed = parseTextToPlayers(text);
           console.log(`Imagem ${i + 1} extraiu ${parsed.length} jogadores`, parsed.map(p => p.name));
           allExtracted.push(...parsed);
         } catch (err) {
