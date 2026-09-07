@@ -75,8 +75,8 @@ function App() {
       .filter((l) => l.length > 0);
 
     const results = [];
-    // Aceita números com ponto, espaço ou vírgula como separador de milhar
-    const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,4}|\d{5,})\s*(?:pts\.?|pontos)?/i;
+    // Aceita números BR/US: 138.123.031 | 138,123,031 | 7.114.674.620 pts.
+    const pointsRegex = /(\d{1,3}(?:[.\s,]\d{3}){1,5}|\d{6,})\s*(?:pts\.?|pontos)?/i;
 
     const noiseWords = new Set([
       'ranking', 'geral', 'sua', 'aliança', 'alianca', 'posição', 'posicao',
@@ -164,7 +164,7 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
   };
 
-  // Pré-processamento leve: só redimensiona + leve contraste (sem inverter)
+  // Estratégia testada: escala de cinza + contraste forte (SEM inverter)
   const preprocessImage = (file) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -174,25 +174,24 @@ function App() {
         try {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          const maxWidth = 1400;
           let width = img.width;
           let height = img.height;
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
+          const scale = width < 1200 ? 1.8 : 1.3;
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
           canvas.width = width;
           canvas.height = height;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
 
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
           for (let i = 0; i < data.length; i += 4) {
-            for (let c = 0; c < 3; c++) {
-              let v = data[i + c];
-              v = (v - 128) * 1.35 + 128;
-              data[i + c] = Math.max(0, Math.min(255, v));
-            }
+            let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            gray = (gray - 128) * 2.3 + 128;
+            gray = Math.max(0, Math.min(255, gray));
+            data[i] = data[i + 1] = data[i + 2] = gray;
           }
           ctx.putImageData(imageData, 0, 0);
 
@@ -242,11 +241,18 @@ function App() {
           setOcrProgress({
             current: i + 1,
             total: images.length,
+            status: `Preparando imagem ${i + 1} de ${images.length}...`
+          });
+
+          const processedBlob = await preprocessImage(img.file);
+
+          setOcrProgress({
+            current: i + 1,
+            total: images.length,
             status: `Lendo imagem ${i + 1} de ${images.length}...`
           });
 
-          // Tenta primeiro na imagem original
-          let result = await Tesseract.recognize(img.file, 'eng', {
+          const result = await Tesseract.recognize(processedBlob, 'eng', {
             logger: (m) => {
               if (m.status === 'recognizing text') {
                 setOcrProgress((prev) => ({
@@ -257,27 +263,8 @@ function App() {
             }
           });
 
-          let text = result?.data?.text || '';
-          let parsed = parseTextToPlayers(text);
-
-          // Se extraiu pouco, tenta com pré-processamento leve
-          if (parsed.length < 2) {
-            setOcrProgress({
-              current: i + 1,
-              total: images.length,
-              status: `Tentando modo alternativo na imagem ${i + 1}...`
-            });
-            try {
-              const processedBlob = await preprocessImage(img.file);
-              result = await Tesseract.recognize(processedBlob, 'eng');
-              const text2 = result?.data?.text || '';
-              const parsed2 = parseTextToPlayers(text2);
-              if (parsed2.length > parsed.length) {
-                text = text2;
-                parsed = parsed2;
-              }
-            } catch (_) {}
-          }
+          const text = result?.data?.text || '';
+          const parsed = parseTextToPlayers(text);
 
           allRaw.push({ name: img.name, text });
           console.log(`Imagem ${i + 1} extraiu ${parsed.length} jogadores`, parsed.map(p => p.name));
@@ -308,7 +295,6 @@ function App() {
     setOcrProgress(null);
     setIsProcessing(false);
 
-    // Lança automaticamente na tabela de ranking
     if (finalList.length > 0) {
       setPlayers((prev) => {
         const existing = new Set(prev.map((p) => p.name.toLowerCase().replace(/\s+/g, '')));
